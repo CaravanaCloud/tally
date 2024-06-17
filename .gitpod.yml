@@ -1,0 +1,10 @@
+image:
+  file: .gitpod.Containerfile
+
+tasks:
+  - init: |
+      echo INIT
+    command: |
+      echo COMMAND
+
+
