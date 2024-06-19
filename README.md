@@ -1,9 +1,14 @@
 # tally
 
-Tally logs and suggest remediations
+Help humans understand the state of complex systems from its log files.
 
-# TODO
+# Features
 
-- Create initial cobra command (main)
-- Prototype the user interface (charm.sh?)
+## Work in Progress
+* CLI / Terminal UI to ingest log packages, possibly nested
+* Basic pattern matching rules
+
+## Next
+* User defined rules with Kogito
+* Machine Learning Classification (BlazingText?)
 
