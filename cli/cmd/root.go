@@ -1,156 +1,184 @@
-/*
-Copyright © 2024 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/bxcodec/faker/v3"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
+var baseStyle = lipgloss.NewStyle().
+	BorderStyle(lipgloss.NormalBorder()).
+	BorderForeground(lipgloss.Color("240"))
 
 type model struct {
-    lines  []string           // items on the to-do list
-    cursor   int                // which to-do list item our cursor is pointing at
-    selected map[int]struct{}   // which to-do items are selected
+	table table.Model
 }
 
-func generateFakeLogLine() string {
-    // Generating random timestamp
-    timestamp := time.Now().Add(time.Duration(rand.Intn(10000)) * time.Minute).Format(time.RFC3339)
+func generateFakeLogLine() LogLine {
+	// Generating random timestamp
+	timestamp := time.Now().Add(time.Duration(rand.Intn(10000)) * time.Minute)
 
-    // Generating random log level
-    logLevels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
-    logLevel := logLevels[rand.Intn(len(logLevels))]
+	// Generating random log level
+	logLevels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
+	logLevel := logLevels[rand.Intn(len(logLevels))]
 
-    // Generating random message
-    message := faker.Sentence()
+	// Generating random message
+	message := faker.Sentence()
 
-    return fmt.Sprintf("[%s] %s: %s", timestamp, logLevel, message)
-}
+	// Generating random source file
+	sourceFile := fmt.Sprintf("file_%d.log", rand.Intn(10))
 
-func initialModel() model {
-	var result = model {
-		// Our to-do list is a grocery list
-		lines:  []string{},
-
-		// A map which indicates which choices are selected. We're using
-		// the  map like a mathematical set. The keys refer to the indexes
-		// of the `choices` slice, above.
-		selected: make(map[int]struct{}),
+	return LogLine{
+		SourceFile: sourceFile,
+		Timestamp:  timestamp,
+		Text:       fmt.Sprintf("%s: %s", logLevel, message),
 	}
-    
-    for i := 1; i <= 100; i++ {
-        logLine := generateFakeLogLine()
-        result.lines = append(result.lines, logLine)
-    }
-    result.cursor = len(result.lines) -1
-    return result
 }
 
 func (m model) Init() tea.Cmd {
-    // Just return `nil`, which means "no I/O right now, please."
-    return nil
+	// Just return `nil`, which means "no I/O right now, please."
+	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-
-    // Is it a key press?
-    case tea.KeyMsg:
-
-        // Cool, what was the actual key pressed?
-        switch msg.String() {
-
-        // These keys should exit the program.
-        case "ctrl+c", "q":
-            return m, tea.Quit
-
-        // The "up" and "k" keys move the cursor up
-        case "up", "k":
-            if m.cursor > 0 {
-                m.cursor--
-            }
-
-        // The "down" and "j" keys move the cursor down
-        case "down", "j":
-            if m.cursor < len(m.lines)-1 {
-                m.cursor++
-            }
-
-        // The "enter" key and the spacebar (a literal space) toggle
-        // the selected state for the item that the cursor is pointing at.
-        case "enter", " ":
-            _, ok := m.selected[m.cursor]
-            if ok {
-                delete(m.selected, m.cursor)
-            } else {
-                m.selected[m.cursor] = struct{}{}
-            }
-        }
-    }
-
-    // Return the updated model to the Bubble Tea runtime for processing.
-    // Note that we're not returning a command.
-    return m, nil
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			if m.table.Focused() {
+				m.table.Blur()
+			} else {
+				m.table.Focus()
+			}
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "enter":
+			selectedRow := m.table.SelectedRow()
+			if selectedRow != nil {
+				return m, tea.Batch(
+					tea.Printf("Selected log line: %s", selectedRow[2]),
+				)
+			}
+		case "up", "k":
+			m.table.MoveUp(1)
+		case "down", "j":
+			m.table.MoveDown(1)
+		}
+	}
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
 }
 
 func (m model) View() string {
-    // The header
-    s := "What should we buy at the market?\n\n"
-
-    // Iterate over our choices
-    for i, choice := range m.lines {
-
-        // Is the cursor pointing at this choice?
-        cursor := " " // no cursor
-        if m.cursor == i {
-            cursor = ">" // cursor!
-        }
-
-        // Is this choice selected?
-        checked := " " // not selected
-        if _, ok := m.selected[i]; ok {
-            checked = "x" // selected!
-        }
-
-        // Render the row
-        s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
-    }
-
-    // The footer
-    s += "\nPress q to quit.\n"
-
-    // Send the UI for rendering
-    return s
+	return baseStyle.Render(m.table.View()) + "\n"
 }
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "tally",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Use:   "tally [file or directory]",
+	Short: "Analyze a bundle of logfiles for issues",
+	Long: `Analyze a bundle of logfiles for knows issues.`,
+	Run: runTally,
+	Args: cobra.MaximumNArgs(1),
+}
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
-	Run: func(cmd *cobra.Command, args []string) {
-		p := tea.NewProgram(initialModel())
-		if _, err := p.Run(); err != nil {
-			fmt.Printf("Alas, there's been an error: %v", err)
-			os.Exit(1)
-		}
-	},
+func validatePath(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("directories are not supported yet")
+	}
+
+	return nil
+}
+
+func displayLogLines(logLines []LogLine) {
+	//TODO: Get current terminal width
+	width := 120
+
+	columns := []table.Column{
+		{Title: "Source File", Width: 10},
+		{Title: "Timestamp", Width: 15},
+		{Title: "Log Text", Width: width - 25},
+	}
+
+	// Sort log lines by timestamp
+	sort.Slice(logLines, func(i, j int) bool {
+		return logLines[i].Timestamp.Before(logLines[j].Timestamp)
+	})
+
+	//TODO: Print only file name, time 
+	var rows []table.Row
+	for _, logLine := range logLines {
+		rows = append(rows, table.Row{
+			logLine.SourceFile,
+			logLine.Timestamp.Format(time.RFC3339),
+			logLine.Text,
+		})
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithFocused(true),
+		table.WithHeight(10),
+	)
+
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(false)
+	t.SetStyles(s)
+
+	m := model{t}
+	if _, err := tea.NewProgram(m).Run(); err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
+	}
+}
+
+
+
+func runTally(cmd *cobra.Command, args []string) {
+	var path string
+	if len(args) == 0 {
+		// Default to the current directory if no argument is provided
+		path = "."
+	} else {
+		path = args[0]
+	}
+
+	if err := validatePath(path); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	lines, err := loadLinesFromFile(path)
+	if err != nil {
+		fmt.Println("Error loading file:", err)
+		return
+	}
+
+	// Process and display lines
+	displayLogLines(lines)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -173,5 +201,3 @@ func init() {
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
-
-
