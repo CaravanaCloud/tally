@@ -45,7 +45,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update the detail information when the selection changes
 		selectedRow := m.table.SelectedRow()
 		if selectedRow != nil {
-			m.detail = fmt.Sprintf("Source File: %s\nTimestamp: %s\nLog Text: %s", selectedRow[0], selectedRow[1], selectedRow[2])
+			m.detail = fmt.Sprintf("Source File: %s\nTimestamp: %s\nLog Text: %s", selectedRow[1], selectedRow[2], selectedRow[3])
 		}
 	}
 	m.table, cmd = m.table.Update(msg)
@@ -84,9 +84,10 @@ func displayLogLines(logLines []LogLine) {
 	width := 120
 
 	columns := []table.Column{
+		{Title: "Status", Width: 5},
 		{Title: "Source File", Width: 20},
 		{Title: "Timestamp", Width: 10},
-		{Title: "Log Text", Width: width - 30},
+		{Title: "Log Text", Width: width - 35},
 	}
 
 	sort.Slice(logLines, func(i, j int) bool {
@@ -96,9 +97,11 @@ func displayLogLines(logLines []LogLine) {
 	var rows []table.Row
 	for _, logLine := range logLines {
 		rows = append(rows, table.Row{
+			logLine.StatusView,
 			logLine.FileView,
 			logLine.TimeView,
-			logLine.TextView,
+			//logLine.TextView,
+			logLine.Text,
 		})
 	}
 

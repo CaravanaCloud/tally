@@ -47,8 +47,10 @@ func parseLogLine(sourceFile, line string) (LogLine, error) {
 	fileView := GetFileName(sourceFile)
 	timeView := ExtractTimePart(timestamp)
 	textView := SummarizeLine(line)
+	statusView := StatusOf(line)
 
 	return LogLine{
+		StatusView: statusView,
 		FileSource: sourceFile,
 		FileView:   fileView,
 		TimeStamp:  timestamp,

@@ -89,3 +89,14 @@ func SummarizeLine(orig string) string {
 	return line
 }
 
+// StatusOf returns "?" if the line contains "error" or an HTTP status code, otherwise " ".
+func StatusOf(line string) string {
+	// Regular expression to match "error" or HTTP status codes (400-599)
+	re := regexp.MustCompile(`\berror\b|\b(4\d{2}|5\d{2})\b`)
+	if re.MatchString(strings.ToLower(line)) {
+		return "?"
+	}
+	return " "
+}
+
+

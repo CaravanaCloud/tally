@@ -3,6 +3,8 @@ package cmd
 import "time"
 
 type LogLine struct {
+	StatusView string
+
 	FileSource string
 	FileView string
 
