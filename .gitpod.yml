@@ -7,4 +7,9 @@ tasks:
     command: |
       echo COMMAND
 
+vscode:
+  extensions:
+    - golang.go
+    - ms-vscode.makefile-tools
+
 
