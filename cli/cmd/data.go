@@ -3,12 +3,12 @@ package cmd
 import "time"
 
 type LogLine struct {
-	SourceFile string
-	fileView string
+	FileSource string
+	FileView string
 
-	Timestamp  time.Time
-	timeView string
+	TimeStamp time.Time
+	TimeView  string
 
-	Text       string
-	textView string
+	Text     string
+	TextView string
 }

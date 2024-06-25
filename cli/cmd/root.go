@@ -2,12 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"sort"
-	"time"
 
-	"github.com/bxcodec/faker/v3"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -19,32 +16,11 @@ var baseStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("240"))
 
 type model struct {
-	table table.Model
-}
-
-func generateFakeLogLine() LogLine {
-	// Generating random timestamp
-	timestamp := time.Now().Add(time.Duration(rand.Intn(10000)) * time.Minute)
-
-	// Generating random log level
-	logLevels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
-	logLevel := logLevels[rand.Intn(len(logLevels))]
-
-	// Generating random message
-	message := faker.Sentence()
-
-	// Generating random source file
-	sourceFile := fmt.Sprintf("file_%d.log", rand.Intn(10))
-
-	return LogLine{
-		SourceFile: sourceFile,
-		Timestamp:  timestamp,
-		Text:       fmt.Sprintf("%s: %s", logLevel, message),
-	}
+	table  table.Model
+	detail string
 }
 
 func (m model) Init() tea.Cmd {
-	// Just return `nil`, which means "no I/O right now, please."
 	return nil
 }
 
@@ -61,17 +37,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "enter":
-			selectedRow := m.table.SelectedRow()
-			if selectedRow != nil {
-				return m, tea.Batch(
-					tea.Printf("Selected log line: %s", selectedRow[2]),
-				)
-			}
 		case "up", "k":
 			m.table.MoveUp(1)
 		case "down", "j":
 			m.table.MoveDown(1)
+		}
+		// Update the detail information when the selection changes
+		selectedRow := m.table.SelectedRow()
+		if selectedRow != nil {
+			m.detail = fmt.Sprintf("Source File: %s\nTimestamp: %s\nLog Text: %s", selectedRow[0], selectedRow[1], selectedRow[2])
 		}
 	}
 	m.table, cmd = m.table.Update(msg)
@@ -79,16 +53,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return baseStyle.Render(m.table.View()) + "\n"
+	tableView := baseStyle.Render(m.table.View())
+	detailView := lipgloss.NewStyle().MarginTop(1).Render(m.detail)
+	return tableView + "\n" + detailView
 }
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "tally [file or directory]",
 	Short: "Analyze a bundle of logfiles for issues",
-	Long: `Analyze a bundle of logfiles for knows issues.`,
-	Run: runTally,
-	Args: cobra.MaximumNArgs(1),
+	Long:  `Analyze a bundle of logfiles for known issues.`,
+	Run:   runTally,
+	Args:  cobra.MaximumNArgs(1),
 }
 
 func validatePath(path string) error {
@@ -105,27 +81,24 @@ func validatePath(path string) error {
 }
 
 func displayLogLines(logLines []LogLine) {
-	//TODO: Get current terminal width
 	width := 120
 
 	columns := []table.Column{
-		{Title: "Source File", Width: 10},
-		{Title: "Timestamp", Width: 15},
-		{Title: "Log Text", Width: width - 25},
+		{Title: "Source File", Width: 20},
+		{Title: "Timestamp", Width: 10},
+		{Title: "Log Text", Width: width - 30},
 	}
 
-	// Sort log lines by timestamp
 	sort.Slice(logLines, func(i, j int) bool {
-		return logLines[i].Timestamp.Before(logLines[j].Timestamp)
+		return logLines[i].TimeStamp.Before(logLines[j].TimeStamp)
 	})
 
-	//TODO: Print only file name, time 
 	var rows []table.Row
 	for _, logLine := range logLines {
 		rows = append(rows, table.Row{
-			logLine.SourceFile,
-			logLine.Timestamp.Format(time.RFC3339),
-			logLine.Text,
+			logLine.FileView,
+			logLine.TimeView,
+			logLine.TextView,
 		})
 	}
 
@@ -148,14 +121,15 @@ func displayLogLines(logLines []LogLine) {
 		Bold(false)
 	t.SetStyles(s)
 
-	m := model{t}
+	m := model{
+		table:  t,
+		detail: "Select a row to see details here...",
+	}
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
 }
-
-
 
 func runTally(cmd *cobra.Command, args []string) {
 	var path string
@@ -177,12 +151,9 @@ func runTally(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Process and display lines
 	displayLogLines(lines)
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -191,13 +162,5 @@ func Execute() {
 }
 
 func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.tally.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

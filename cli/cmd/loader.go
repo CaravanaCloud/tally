@@ -5,10 +5,7 @@ import (
 	"os"
 	"strings"
 	"time"
-	"path"
 )
-
-
 
 func loadLinesFromFile(filePath string) ([]LogLine, error) {
 	file, err := os.Open(filePath)
@@ -47,13 +44,16 @@ func parseLogLine(sourceFile, line string) (LogLine, error) {
 		}
 	}
 
-	//HELP me HERE: use only file name, without directory ("sample.log" instad of "../samples/sample.log")
-	fileView := path.Base(sourceFile)
+	fileView := GetFileName(sourceFile)
+	timeView := ExtractTimePart(timestamp)
+	textView := SummarizeLine(line)
 
 	return LogLine{
-		SourceFile: sourceFile,
-		fileView: fileView,
-		Timestamp:  timestamp,
+		FileSource: sourceFile,
+		FileView:   fileView,
+		TimeStamp:  timestamp,
+		TimeView:   timeView,
 		Text:       line,
+		TextView:   textView,
 	}, nil
 }
