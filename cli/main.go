@@ -1,7 +1,13 @@
 package main
 
-import "github.com/CaravanaCloud/tally/cmd"
+import (
+	"log"
+
+	"github.com/CaravanaCloud/tally/cmd" // Replace "your_project" with your actual module name
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		log.Fatalf("Error executing command: %v", err)
+	}
 }
