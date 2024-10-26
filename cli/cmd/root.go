@@ -15,8 +15,9 @@ import (
 type quitChannel chan struct{}
 
 type LogLine struct {
-	text string
-	time time.Time
+	text        string
+	time        time.Time
+	temperature int8
 }
 
 const (
@@ -45,7 +46,6 @@ var rootCmd = &cobra.Command{
 func Execute() error {
 	return rootCmd.Execute()
 }
-
 
 type settings struct {
 	path string

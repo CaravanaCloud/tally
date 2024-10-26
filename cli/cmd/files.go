@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,6 +66,22 @@ func parseTime(text string) time.Time {
 	return parsedTime
 }
 
+func parseTemperature(logLine string) int8 {
+	// Regular expression to match HTTP method names and error status codes (40X or 50X)
+	re := regexp.MustCompile(`"(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD) [^"]* HTTP/1\.[01]" (4\d{2}|5\d{2})`)
+
+	// Find the first match
+	matches := re.FindStringSubmatch(logLine)
+	if len(matches) > 0 {
+		statusCode, err := strconv.Atoi(matches[2])
+		if err == nil && (statusCode >= 400 && statusCode < 600) {
+			return 100
+		}
+	}
+
+	return 0
+}
+
 // loadFilesInDirectory reads all log files from the specified directory recursively.
 func loadFilesInDirectory(dirPath string) error {
 	mu.Lock() // Lock to prevent concurrent access
@@ -84,9 +102,11 @@ func loadFilesInDirectory(dirPath string) error {
 			splitLines := splitLines(string(content))
 			for _, line := range splitLines {
 				lineTime := parseTime(line)
+				lineTemp := parseTemperature(line)
 				logline := LogLine{
-					text: line,
-					time: lineTime,
+					text:        line,
+					time:        lineTime,
+					temperature: lineTemp,
 				}
 				lines = append(lines, logline)
 			}
@@ -107,6 +127,10 @@ func loadFilesInDirectory(dirPath string) error {
 		scrollOffset = 0
 	}
 	selectedLine = len(lines) - 1
+	// sort lines by time
+	sort.Slice(lines, func(i, j int) bool {
+		return lines[i].time.Before(lines[j].time)
+	})
 	render()
 	return nil
 }

@@ -1,6 +1,8 @@
 package cmd
 
-import "github.com/gdamore/tcell/v2"
+import (
+	"github.com/gdamore/tcell/v2"
+)
 
 // getTerminalHeight returns the current height of the terminal.
 func getTerminalHeight() int {
@@ -22,21 +24,27 @@ func render() {
 		line := lines[lineIndex]
 		style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorDefault)
 		if lineIndex == selectedLine {
-			style = style.Background(tcell.ColorGreen)
+			style = style.Background(tcell.ColorGrey)
 		}
-		lineTime := line.time.Format("2006-01-02 15:04:05")
-		lineText := line.text + " " + lineTime
-		timeStyle := tcell.StyleDefault.Foreground(tcell.ColorGrey).Background(tcell.ColorDefault)
+		if line.temperature > 90 {
+			style = style.Foreground(tcell.ColorRed)
+		}
+		//lineInfo := strconv.Itoa(int(line.temperature))
+		lineText := line.text // + " " + lineInfo
 
 		// Print lineText
 		for j, ch := range lineText {
 			screen.SetContent(j, i, ch, nil, style)
 		}
 
-		// Print lineTime in grey
-		for j, ch := range lineTime {
-			screen.SetContent(len(lineText)+1+j, i, ch, nil, timeStyle)
-		}
+		// Print lineInfo in grey
+
+		/*
+			infoStyle := tcell.StyleDefault.Foreground(tcell.ColorGrey).Background(tcell.ColorDefault)
+			for j, ch := range lineInfo {
+				screen.SetContent(len(lineText)+1+j, i, ch, nil, infoStyle)
+			}
+		*/
 	}
 	screen.Show()
 }
