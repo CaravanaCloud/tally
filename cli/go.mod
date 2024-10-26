@@ -3,15 +3,12 @@ module github.com/CaravanaCloud/tally
 go 1.22.2
 
 require (
-	github.com/fsnotify/fsnotify v1.7.0
-	github.com/nsf/termbox-go v1.1.1
+	github.com/gdamore/tcell/v2 v2.7.4
 	github.com/spf13/cobra v1.8.1
 )
 
 require (
-	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
-	github.com/gdamore/tcell/v2 v2.7.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
