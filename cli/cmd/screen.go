@@ -15,8 +15,8 @@ func render() {
 	screen.Clear()
 	_, height := screen.Size()
 	maxLines := len(lines)
-
-	for i := 0; i < height-1; i++ {
+	linesLimit := height - 2
+	for i := 0; i < linesLimit; i++ {
 		lineIndex := i + scrollOffset
 		if lineIndex >= maxLines {
 			break
@@ -46,6 +46,23 @@ func render() {
 			}
 		*/
 	}
+	// print a separator
+	separator := "------------------------------------------------------------------"
+	for i, ch := range separator {
+		screen.SetContent(i, height-2, ch, nil, tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorDefault))
+	}
+
+	// print status bar on screen
+	// statusBar := "Press <esc> or <ctrl+c> to quit"
+	line := lines[selectedLine]
+	fileName := line.file.Name()
+	lineTimeFmt := line.time.Format("2006-01-02 15:04:05")
+	lineKind := line.kind
+	statusBar := fileName + " | " + lineTimeFmt + " | " + lineKind.String()
+	for i, ch := range statusBar {
+		screen.SetContent(i, height-1, ch, nil, tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorDefault))
+	}
+
 	screen.Show()
 }
 
@@ -70,7 +87,7 @@ func handleScroll(quit chan struct{}) {
 			case tcell.KeyDown:
 				if selectedLine < len(lines)-1 {
 					selectedLine++
-					if selectedLine >= scrollOffset+getTerminalHeight()-1 {
+					if selectedLine >= scrollOffset+getTerminalHeight()-2 {
 						scrollOffset++
 					}
 					render()

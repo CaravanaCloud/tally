@@ -82,6 +82,61 @@ func parseTemperature(logLine string) int8 {
 	return 0
 }
 
+func isLogFile(info os.FileInfo) bool {
+	isLogFile := strings.HasSuffix(info.Name(), logFileExtension)
+	return isLogFile
+}
+
+var reHTTPMethod = regexp.MustCompile(`(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)`)
+
+func isHTAccess(text string) bool {
+	return reHTTPMethod.MatchString(text)
+}
+
+func classify(text string) FileKind {
+	firstLine := strings.SplitN(text, "\n", 2)[0]
+	if isHTAccess(firstLine) {
+		return AccessLog
+	}
+	return Unknown
+}
+
+func visitFile(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		return err
+	}
+	if !isLogFile(info) {
+		return nil
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to read file %s: %v\n", path, err)
+		return nil // Continue walking even if a file fails to read
+	}
+	text := string(content)
+	splitLines := splitLines(text)
+	fileKind := classify(text)
+
+	for _, line := range splitLines {
+		lineTime := parseTime(line)
+		lineTemp := parseTemperature(line)
+
+		logline := LogLine{
+			text:        line,
+			time:        lineTime,
+			temperature: lineTemp,
+			file:        info,
+			kind:        fileKind,
+		}
+
+		lines = append(lines, logline)
+	}
+	log.Printf("Loaded file: %s (%d lines)\n", path, len(splitLines)) // Debug output
+
+	return nil
+}
+
 // loadFilesInDirectory reads all log files from the specified directory recursively.
 func loadFilesInDirectory(dirPath string) error {
 	mu.Lock() // Lock to prevent concurrent access
@@ -89,31 +144,7 @@ func loadFilesInDirectory(dirPath string) error {
 
 	lines = nil
 
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if strings.HasSuffix(info.Name(), logFileExtension) {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to read file %s: %v\n", path, err)
-				return nil // Continue walking even if a file fails to read
-			}
-			splitLines := splitLines(string(content))
-			for _, line := range splitLines {
-				lineTime := parseTime(line)
-				lineTemp := parseTemperature(line)
-				logline := LogLine{
-					text:        line,
-					time:        lineTime,
-					temperature: lineTemp,
-				}
-				lines = append(lines, logline)
-			}
-			log.Printf("Loaded file: %s (%d lines)\n", path, len(splitLines)) // Debug output
-		}
-		return nil
-	})
+	err := filepath.Walk(dirPath, visitFile)
 
 	if err != nil {
 		return fmt.Errorf("error gathering log files: %w", err)
@@ -122,7 +153,7 @@ func loadFilesInDirectory(dirPath string) error {
 	if len(lines) == 0 {
 		fmt.Println("No log files found in directory.")
 	}
-	scrollOffset = len(lines) - getTerminalHeight() + 1
+	scrollOffset = len(lines) - getTerminalHeight() + 2
 	if scrollOffset < 0 {
 		scrollOffset = 0
 	}
@@ -133,4 +164,10 @@ func loadFilesInDirectory(dirPath string) error {
 	})
 	render()
 	return nil
+}
+
+func loadFiles(settings settings) {
+	if err := loadFilesInDirectory(settings.path); err != nil {
+		log.Fatalf("Failed to load files: %v", err)
+	}
 }

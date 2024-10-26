@@ -14,10 +14,23 @@ import (
 
 type quitChannel chan struct{}
 
+type FileKind int
+
+const (
+	Unknown FileKind = iota
+	AccessLog
+)
+
+func (fk FileKind) String() string {
+	return [...]string{"Unknown", "AccessLog"}[fk]
+}
+
 type LogLine struct {
 	text        string
 	time        time.Time
 	temperature int8
+	file        os.FileInfo
+	kind        FileKind
 }
 
 const (
@@ -25,12 +38,11 @@ const (
 	defaultDir       = "."
 )
 
-// Global variables
 var (
 	lines        []LogLine
 	scrollOffset int
 	selectedLine int
-	mu           sync.Mutex // Mutex for concurrent access
+	mu           sync.Mutex
 	screen       tcell.Screen
 )
 
@@ -73,10 +85,7 @@ func initSignals() quitChannel {
 	return quitChannel
 }
 
-func run(cmd *cobra.Command, args []string) {
-	quitChannel := initSignals()
-	settings := initSettings(args)
-
+func initScreen() tcell.Screen {
 	var err error
 	screen, err = tcell.NewScreen()
 	if err != nil {
@@ -85,14 +94,15 @@ func run(cmd *cobra.Command, args []string) {
 	if err = screen.Init(); err != nil {
 		log.Fatal(err)
 	}
+	return screen
+}
+
+func run(cmd *cobra.Command, args []string) {
+	quitChannel := initSignals()
+	settings := initSettings(args)
+	screen := initScreen()
 	defer screen.Fini()
-
-	if err := loadFilesInDirectory(settings.path); err != nil {
-		log.Fatalf("Failed to load files: %v", err)
-	}
-
+	loadFiles(settings)
 	handleScroll(quitChannel)
 	log.Printf("Tally terminated")
 }
-
-func init() {}
