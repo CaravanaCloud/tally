@@ -5,19 +5,28 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/nsf/termbox-go"
+	"github.com/gdamore/tcell/v2"
 	"github.com/spf13/cobra"
 )
 
-// Global variables for managing the file content, scrolling, and selection.
+const (
+	logFileExtension = ".log"
+	defaultDir       = "."
+)
+
+// Global variables
 var (
-	fileContent  []string // Stores the lines of the file
-	scrollOffset int      // Tracks the current scroll position
-	selectedLine int      // Tracks the currently selected line
+	fileContent  []string
+	scrollOffset int
+	selectedLine int
+	mu           sync.Mutex // Mutex for concurrent access
+	screen       tcell.Screen
 )
 
 // Execute runs the root command.
@@ -27,73 +36,99 @@ func Execute() error {
 
 // getTerminalHeight returns the current height of the terminal.
 func getTerminalHeight() int {
-	_, height := termbox.Size()
+	_, height := screen.Size()
 	return height
 }
 
 // printVisibleLines prints the currently visible lines based on the scroll offset and highlights the selected line.
 func printVisibleLines() {
-	termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
-
-	_, height := termbox.Size()
+	screen.Clear()
+	_, height := screen.Size()
 	maxLines := len(fileContent)
 
-	// Calculate the visible range of lines based on scrollOffset and terminal height.
-	for i := 0; i < height-1; i++ { // -1 to leave space for bottom border
+	for i := 0; i < height-1; i++ {
 		lineIndex := i + scrollOffset
 		if lineIndex >= maxLines {
 			break
 		}
+		line := fileContent[lineIndex]
+		style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorDefault)
 		if lineIndex == selectedLine {
-			// Highlight the selected line with a different background color
-			for j, ch := range fileContent[lineIndex] {
-				termbox.SetCell(j, i, ch, termbox.ColorBlack, termbox.ColorGreen) // Black text on green background
-			}
-		} else {
-			// Print normal lines
-			for j, ch := range fileContent[lineIndex] {
-				termbox.SetCell(j, i, ch, termbox.ColorWhite, termbox.ColorDefault) // Normal text
-			}
+			style = style.Background(tcell.ColorGreen)
+		}
+		for j, ch := range line {
+			screen.SetContent(j, i, ch, nil, style)
 		}
 	}
-	termbox.Flush()
+	screen.Show()
 }
 
-// loadFile reads the file contents and stores it in the fileContent global variable.
-func loadFile(filePath string) error {
-	content, err := os.ReadFile(filePath)
+// loadFilesInDirectory reads all log files from the specified directory recursively.
+func loadFilesInDirectory(dirPath string) error {
+	mu.Lock() // Lock to prevent concurrent access
+	defer mu.Unlock()
+
+	fileContent = nil
+
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(info.Name(), logFileExtension) {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to read file %s: %v\n", path, err)
+				return nil // Continue walking even if a file fails to read
+			}
+			lines := splitLines(string(content))
+			fileContent = append(fileContent, lines...)
+			fmt.Printf("Loaded file: %s (%d lines)\n", path, len(lines)) // Debug output
+		}
+		return nil
+	})
+
 	if err != nil {
-		return fmt.Errorf("error reading file: %v", err)
+		return fmt.Errorf("error gathering log files: %w", err)
 	}
 
-	// Split the content into lines and update fileContent.
-	fileContent = splitLines(string(content))
-	scrollOffset = len(fileContent) - getTerminalHeight() + 1 // Scroll to the end of the file
-	if scrollOffset < 0 {
-		scrollOffset = 0 // Ensure scrollOffset does not go negative
+	if len(fileContent) == 0 {
+		fmt.Println("No log files found in directory.")
 	}
-	selectedLine = len(fileContent) - 1 // Set the selected line to the last line
+	scrollOffset = len(fileContent) - getTerminalHeight() + 1
+	if scrollOffset < 0 {
+		scrollOffset = 0
+	}
+	selectedLine = len(fileContent) - 1
 	printVisibleLines()
 	return nil
 }
 
 // splitLines splits the content into individual lines.
 func splitLines(content string) []string {
-	return strings.Split(content, "\n")
+	return strings.Split(strings.TrimSpace(content), "\n")
 }
 
-// watchFile watches the specified file for changes and reloads it when modified.
-func watchFile(filePath string, quit chan struct{}) {
+// watchFiles watches the specified directory for changes and reloads log files when modified.
+func watchFiles(dirPath string, quit chan struct{}) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal("Failed to create file watcher:", err)
 	}
 	defer watcher.Close()
 
-	// Add the file to the watcher
-	err = watcher.Add(filePath)
+	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(info.Name(), logFileExtension) {
+			if err := watcher.Add(path); err != nil {
+				log.Printf("Failed to watch file %s: %v", path, err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		log.Fatal("Failed to watch file:", err)
+		log.Fatal("Failed to watch files:", err)
 	}
 
 	for {
@@ -105,14 +140,10 @@ func watchFile(filePath string, quit chan struct{}) {
 				return
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write {
-				if err := loadFile(filePath); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to reload file: %v\n", err)
-				}
+				fmt.Printf("File modified: %s\n", event.Name) // Feedback on file change
+				loadFilesInDirectory(dirPath)
 			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
+		case err := <-watcher.Errors:
 			log.Println("File watcher error:", err)
 		}
 	}
@@ -121,45 +152,31 @@ func watchFile(filePath string, quit chan struct{}) {
 // handleScroll handles key events for scrolling up and down.
 func handleScroll(quit chan struct{}) {
 	for {
-		switch ev := termbox.PollEvent(); ev.Type {
-		case termbox.EventKey:
-			switch ev.Key {
-			case termbox.KeyEsc, termbox.KeyCtrlC: // Quit on Escape or Ctrl+C
+		ev := screen.PollEvent()
+		switch ev := ev.(type) {
+		case *tcell.EventKey:
+			switch ev.Key() {
+			case tcell.KeyEscape, tcell.KeyCtrlC:
 				close(quit)
 				return
-			case termbox.KeyArrowUp: // Scroll up
+			case tcell.KeyUp:
 				if selectedLine > 0 {
 					selectedLine--
-					if selectedLine < scrollOffset { // Adjust scroll if necessary
+					if selectedLine < scrollOffset {
 						scrollOffset = selectedLine
 					}
 					printVisibleLines()
 				}
-			case termbox.KeyArrowDown: // Scroll down
+			case tcell.KeyDown:
 				if selectedLine < len(fileContent)-1 {
 					selectedLine++
-					if selectedLine >= scrollOffset+getTerminalHeight()-1 { // Adjust scroll if necessary
+					if selectedLine >= scrollOffset+getTerminalHeight()-1 {
 						scrollOffset++
 					}
 					printVisibleLines()
 				}
-			case termbox.KeyPgup: // Page up
-				scrollOffset -= getTerminalHeight() - 1
-				if scrollOffset < 0 {
-					scrollOffset = 0
-				}
-				printVisibleLines()
-			case termbox.KeyPgdn: // Page down
-				scrollOffset += getTerminalHeight() - 1
-				if scrollOffset+getTerminalHeight()-1 > len(fileContent) {
-					scrollOffset = len(fileContent) - getTerminalHeight() + 1
-					if scrollOffset < 0 {
-						scrollOffset = 0
-					}
-				}
-				printVisibleLines()
 			}
-		case termbox.EventResize: // Handle resize events
+		case *tcell.EventResize:
 			printVisibleLines()
 		}
 	}
@@ -167,50 +184,61 @@ func handleScroll(quit chan struct{}) {
 
 // rootCmd is the base command for the Cobra CLI.
 var rootCmd = &cobra.Command{
-	Use:   "tally [file]",
-	Short: "Display file content and reload on changes",
-	Long:  `Display file content and automatically reload when the file changes.`,
-	Run:   runTally,
-	Args:  cobra.MaximumNArgs(1), // Only accept up to one file argument
+	Use:   "tally [directory]",
+	Short: "Display log files in a directory and reload on changes",
+	Run:   run,
+	Args:  cobra.MaximumNArgs(1),
 }
 
-// runTally handles the main logic of the program.
-func runTally(cmd *cobra.Command, args []string) {
-	if len(args) == 0 {
-		fmt.Println("Error: No file specified. Please provide a file path as an argument.")
-		os.Exit(1) // Exit with an error code
-	}
+type settings struct {
+	path string
+}
 
-	filePath := args[0]
-	if _, err := os.Stat(filePath); err != nil {
-		log.Fatalf("Error: %s does not exist\n", filePath)
+func initSettings(args []string) settings {
+	path := defaultDir
+	if len(args) > 0 {
+		path = args[0]
 	}
+	if _, err := os.Stat(path); err != nil {
+		log.Fatalf("Error: %s does not exist\n", path)
+	}
+	return settings{path: path}
+}
 
-	// Handle Ctrl+C to clean up and exit the program.
-	quit := make(chan struct{})
+type quitChannel chan struct{}
+
+func initSignals() quitChannel {
+	quitChannel := make(quitChannel)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
-		close(quit)
+		close(quitChannel)
 	}()
+	return quitChannel
+}
 
-	if err := termbox.Init(); err != nil {
+func run(cmd *cobra.Command, args []string) {
+	quitChannel := initSignals()
+	settings := initSettings(args)
+
+	var err error
+	screen, err = tcell.NewScreen()
+	if err != nil {
 		log.Fatal(err)
 	}
-	defer termbox.Close()
+	if err = screen.Init(); err != nil {
+		log.Fatal(err)
+	}
+	defer screen.Fini()
 
-	if err := loadFile(filePath); err != nil {
-		log.Fatalf("Failed to load file: %v", err)
+	if err := loadFilesInDirectory(settings.path); err != nil {
+		log.Fatalf("Failed to load files: %v", err)
 	}
 
-	// Start the file watcher and handle scrolling.
-	go watchFile(filePath, quit)
-	handleScroll(quit)
-
-	fmt.Println("Program terminated.")
+	go watchFiles(settings.path, quitChannel)
+	handleScroll(quitChannel)
+	log.Printf("Tally terminated")
 }
 
-func init() {
-	// Additional flags and configurations can be set here if needed.
-}
+func init() {}
